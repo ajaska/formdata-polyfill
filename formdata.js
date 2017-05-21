@@ -1,6 +1,8 @@
 /* 
  * Loosely based off of
  * https://github.com/inexorabletash/polyfill/blob/master/xhr.js
+ * Spec:
+ * https://xhr.spec.whatwg.org/#interface-formdata
 */
 
 (function(global) {
@@ -22,11 +24,17 @@
     }
 
     FormData.prototype = {
-      append: function(name, value /*, filename */) {
-        if ('Blob' in global && value instanceof global.Blob)
-          throw TypeError("Blob not supported");
-        name = String(name);
-        this._data.push([name, value]);
+      append: function(name, value, filename) {
+        var entryName = String(name);
+        var entryValue = value;
+        if ('Blob' in global && value instanceof global.Blob) {
+          entryValue = new File(value, "blob");
+        }
+        if (filename && 'File' in global && value instanceof global.File) {
+          entryValue = new File(entryValue, filename);
+        }
+
+        this._data.push([entryName, entryValue]);
       },
 
       toString: function() {
@@ -36,12 +44,7 @@
       }
     };
 
-    /* TODO:
-     * get(), getAll(), has() 
-     * entries(), keys(), values(), and support of for...of
-     */
-
-    FormData.prototype.set = function(name, value) {
+    FormData.prototype.set = function(name, value, filename) {
       var didSet = false;
 
       for (var i = 0; i < this._data.length; ++i) {
@@ -51,14 +54,40 @@
             --i;
           } else {
             this._data[i][1] = value;
+            if (filename && 'File' in global && value instanceof global.File) {
+              this._data[i][1].name = filename;
+            }
             didSet = true;
           }
         }
       }
 
       if (!didSet) {
-        this.append(name, value);
+        this.append(name, value, filename);
       }
+    }
+
+    FormData.prototype.get = function(name) {
+      for (var i = 0; i < this._data.length; ++i) {
+        if (this._data[i][0] === name) {
+          return this._data[i][1];
+        }
+      }
+      return null;
+    }
+
+    FormData.prototype.getAll = function(name) {
+      var results = [];
+      for (var i = 0; i < this._data.length; ++i) {
+        if (this._data[i][0] === name) {
+          results.push(this._data[i][1]);
+        }
+      }
+      return results;
+    }
+
+    FormData.prototype.has = function(name) {
+      return this.get(name) !== null;
     }
 
     FormData.prototype.delete = function(name) {
@@ -68,6 +97,46 @@
           --i;
         }
       }
+    }
+
+    function newIterator(data, modifier) {
+      return {
+        next: function() {
+          if (this._i >= this._data.length) {
+            return { done: true };
+          }
+
+          ++this._i;
+          return {
+            done: false,
+            value: modifier(this._data[this._i-1]),
+          };
+        },
+        _i: 0,
+        _data: data,
+      };
+    }
+
+    FormData.prototype.entries = function() {
+      return newIterator(this._data, function(entry) {
+        return [entry[0], entry[1]];
+      });
+    }
+
+    FormData.prototype.keys = function() {
+      return newIterator(this._data, function(entry) {
+        return entry[0];
+      });
+    }
+
+    FormData.prototype.values = function() {
+      return newIterator(this._data, function(entry) {
+        return entry[1];
+      });
+    }
+
+    FormData.prototype[Symbol.iterator] = function() {
+      return this._data[Symbol.iterator]();
     }
 
     global.FormData = FormData;
